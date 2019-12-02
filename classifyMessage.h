@@ -1,3 +1,8 @@
+############################################
+#Date: 2019.11.29
+#Author: Created by Jiaxiang Feng
+#Version: 1.0
+############################################
 #ifndef _CLASSIFYMESSAGE_H_
 #define _CLASSIFYMESSAGE_H_
 #include <stdio.h>
