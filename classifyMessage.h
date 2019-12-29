@@ -1,15 +1,15 @@
-############################################
-#Date: 2019.11.29
-#Author: Created by Jiaxiang Feng
-#Version: 1.0
-############################################
+//############################################
+//#Date: 2019.12.29
+//#Author: Modified by Jiaxiang Feng
+//#Version: 2.0
+//############################################
 #ifndef _CLASSIFYMESSAGE_H_
 #define _CLASSIFYMESSAGE_H_
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <string>
-#include <string.h>
+#include "string.h"
 #include <time.h>
 #include <unistd.h>
 #include <getopt.h>
@@ -18,6 +18,7 @@
 #include <getopt.h>
 #include <fstream>
 #include <climits>
+#include <vector>
 
 typedef uint8_t U8;
 typedef uint16_t U16;
@@ -37,4 +38,14 @@ public:
   virtual void write(const char* buf, int n);  // write buf[n]
   virtual ~Writer() {}
 };
+
+class FileNameInfoProperty{
+public:
+	std::string fileName;
+	std::vector<long long int> infoPosInTempFile;
+	int fileNameLength = 0;
+	int infoAppearedNum = 0;
+	FileNameInfoProperty();
+};
+
 #endif

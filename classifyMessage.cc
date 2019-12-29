@@ -1,18 +1,15 @@
-############################################
-#Date: 2019.11.29
-#Author: Created by Jiaxiang Feng
-#Version: 1.0
-############################################
+//############################################
+//#Date: 2019.12.29
+//#Author: Modified by Jiaxiang Feng
+//#Version: 2.0
+//############################################
 #include "classifyMessage.h"
-
 
 #ifdef __linux__
   #include <sys/stat.h>
 #endif
 
-
 using std::string;
-
 
 #define KEY_WORD_NUM 3
 #define PROCESS_NUM 2
@@ -36,6 +33,12 @@ void Writer::write(const char* buf, int n) {
     put(U8(buf[i]));
 }
 
+FileNameInfoProperty::FileNameInfoProperty(){
+	infoPosInTempFile.clear();
+	fileNameLength = 0;
+	infoAppearedNum = 0;
+}
+
 struct File: public Reader, public Writer {
   FILE* f;
   int get() {return getc(f);}
@@ -43,7 +46,6 @@ struct File: public Reader, public Writer {
   int read(char* buf, int n) {return fread(buf, 1, n, f);}
   void write(const char* buf, int n) {fwrite(buf, 1, n, f);}
 };
-
 
 static struct option const long_opts[] = {
         {"project",            		required_argument,  NULL,   'p'},
@@ -77,6 +79,7 @@ static void usage(const char *name)
 
 U8 sythesisNum, implementNum;
 char *projectDirectory = NULL;
+
 int main(int argc, char **argv)
 {
 	int cmd_opt;
@@ -104,13 +107,13 @@ int main(int argc, char **argv)
     	exit(0);
     }
 
-    FILE *log_in[PROCESS_NUM], *log_out[KEY_WORD_NUM];	//in: synthesis, implementation.
+    FILE *log_in[PROCESS_NUM], *log_out_temp[KEY_WORD_NUM], *log_out[KEY_WORD_NUM];	//in: synthesis, implementation.
     							//out:warning,critical warning, error.
     string Directory = projectDirectory;
     string projectName;
     int projectDirectoryLenth = Directory.length() - 1;
     int pos;
-    if(Directory[projectDirectoryLenth] == 47){
+    if(Directory[projectDirectoryLenth] == 47){						//Fix input project directory different situation
     	for(int i = 1; ;i++){
     		if(Directory[projectDirectoryLenth-i] == '/'){
     			pos = projectDirectoryLenth - i + 1;
@@ -132,10 +135,10 @@ int main(int argc, char **argv)
     string synth_log = projectDirectory + projectName + ".runs/synth_" + std::to_string(sythesisNum) + "/runme.log";
     string impl_log = projectDirectory + projectName + ".runs/impl_" + std::to_string(implementNum) + "/runme.log";
     std::cout << synth_log << std::endl;
-    if(!(log_in[0] = fopen(synth_log.c_str(), "rb"))){
+    if(!(log_in[0] = fopen(synth_log.c_str(), "rt"))){				//open input log file
     	perror(synth_log.c_str()), exit(1);
     }
-    if(!(log_in[1] = fopen(impl_log.c_str(), "rb"))){
+    if(!(log_in[1] = fopen(impl_log.c_str(), "rt"))){				//open input log file
     	perror(impl_log.c_str()), exit(1);
     }
 
@@ -146,19 +149,28 @@ int main(int argc, char **argv)
     };
 
     for(int i = 0; i < KEY_WORD_NUM; i++){
-    	string fn = outFilename[i] + ".log";	//string(projectDirectory) +
-    	log_out[i] = fopen(fn.c_str(), "wb");
+    	string fn = outFilename[i] + ".log";
+    	log_out[i] = fopen(fn.c_str(), "wt");
     	if (!log_out[i]) perror(fn.c_str()), exit(1);
     }
 
+    string outTempFilename[KEY_WORD_NUM] = {
+    	"warning_temp",
+    	"criticalWarning_temp",
+    	"error_temp"
+    };
 
-    /* classify synth log*/
-    char frontCharacterExp[20] = {};
+    for(int i = 0; i < KEY_WORD_NUM; i++){
+    	string fn = outTempFilename[i] + ".log";
+    	log_out_temp[i] = fopen(fn.c_str(), "wt+");
+    	if (!log_out_temp[i]) perror(fn.c_str()), exit(1);
+    }
+
+    char frontCharacterExp[20] = {};				//string temporary memory
     char c;
     char* frontPtr = frontCharacterExp;
     U8 breakLineFlag = 0;
     U32 frontCharNum = 0;
-
 
     string keyWord[KEY_WORD_NUM] = {
 		"WARNING: ",
@@ -179,13 +191,8 @@ int main(int argc, char **argv)
 
     std::cout << "Start to classify the message." << std::endl;
     U8 frontFinishFlag = 0;
+    long long int endOfProcessInfoPos[PROCESS_NUM][KEY_WORD_NUM] = {0};
     for(int filein = 0; filein < PROCESS_NUM; filein++){
-		for(int j = 0; j < KEY_WORD_NUM; j++){
-			for(int i = 0; i < processWord[filein].length(); i++){
-        		putc(processWord[filein][i], log_out[j]);
-    		}
-			putc('\n', log_out[j]);
-    	}
 		std::cout << processWord[filein] << "classifying..." << std::endl;
 
 		while((c = getc(log_in[filein])) != EOF){
@@ -194,25 +201,24 @@ int main(int argc, char **argv)
 				*++frontPtr = '\0';
 				frontCharNum++;
 			}
-			if(c == 10){
+			if(c == 10){							// Arrive at LF
 				breakLineFlag = 1;
-				frontPtr = frontCharacterExp;
+				frontPtr = frontCharacterExp;		//Change ptr to the head of memory.
 				frontCharacterExp[0] = '\0';
 				frontCharNum = 0;
 				frontFinishFlag = 0;
 			}
 
-
 			switch(frontCharNum){
 				case 9:			//WARNING
 					if(frontCharacterExp == keyWord[0]){
 						for(int i = 0; i < keyWordNum[0]; i++){
-							putc(keyWord[0][i], log_out[0]);
+							putc(keyWord[0][i], log_out_temp[0]);
 						}
 						while((c = getc(log_in[filein])) != 10){
-							putc(c, log_out[0]);
+							putc(c, log_out_temp[0]);
 						}
-						putc(10, log_out[0]);
+						putc(10, log_out_temp[0]);
 						frontPtr = frontCharacterExp;
 						frontCharacterExp[0] = '\0';
 						frontCharNum = 0;
@@ -221,12 +227,12 @@ int main(int argc, char **argv)
 				case 18:			//CRITICAL WARNING
 					if(frontCharacterExp == keyWord[1]){
 						for(int i = 0; i < keyWordNum[1]; i++){
-							putc(keyWord[1][i], log_out[1]);
+							putc(keyWord[1][i], log_out_temp[1]);
 						}
 						while((c = getc(log_in[filein])) != 10){
-							putc(c, log_out[1]);
+							putc(c, log_out_temp[1]);
 						}
-						putc(10, log_out[1]);
+						putc(10, log_out_temp[1]);
 						frontPtr = frontCharacterExp;
 						frontCharacterExp[0] = '\0';
 						frontCharNum = 0;
@@ -239,12 +245,12 @@ int main(int argc, char **argv)
 				case 7:			//ERROR
 					if(frontCharacterExp == keyWord[2]){
 						for(int i = 0; i < keyWordNum[2]; i++){
-							putc(keyWord[2][i], log_out[2]);
+							putc(keyWord[2][i], log_out_temp[2]);
 						}
 						while((c = getc(log_in[filein])) != 10){
-							putc(c, log_out[2]);
+							putc(c, log_out_temp[2]);
 						}
-						putc(10, log_out[2]);
+						putc(10, log_out_temp[2]);
 						frontPtr = frontCharacterExp;
 						frontCharacterExp[0] = '\0';
 						frontCharNum = 0;
@@ -254,17 +260,135 @@ int main(int argc, char **argv)
 					break;
 			}
 		}
-		for(int k = 0; k < KEY_WORD_NUM; k++){
-			putc('\n', log_out[k]);
-			putc('\n', log_out[k]);
-			putc('\n', log_out[k]);
-			putc('\n', log_out[k]);
-		}
-
 		fclose(log_in[filein]);
+		endOfProcessInfoPos[filein][0] = ftell(log_out_temp[0]);
+		endOfProcessInfoPos[filein][1] = ftell(log_out_temp[1]);
+		endOfProcessInfoPos[filein][2] = ftell(log_out_temp[2]);
     }
+
+    long long int latestReadPos = 0, lastLeftBracketPos = 0, lastColonPos = 0;
+    int fileNameLength = 0;
+    char lastChar;
+    char fileNameExp[200] = {};				//string temporary memory
+    char fileNameAndLineExp[200] = {};				//string temporary memory
+    long int appearedFileNameNum[KEY_WORD_NUM] = {0};
+    long long int lineStartPos = 0, curNamePos = 0;
+	std::vector<FileNameInfoProperty> appearedInfo[KEY_WORD_NUM];
+	FileNameInfoProperty infoTemp;
+    U8 alreadyExistFlag = 0;
+
+    for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+    	std::cout << "Searching the information in "<< keyWord[fileOutNum] << "by file name" << std::endl;
+    	fseek(log_out_temp[fileOutNum], 0, SEEK_SET);
+    	while((c = getc(log_out_temp[fileOutNum])) != EOF){
+    		if(c == '['){
+    			lastLeftBracketPos = ftell(log_out_temp[fileOutNum]);
+    		}
+    		if(c == ':'){
+    			lastColonPos = ftell(log_out_temp[fileOutNum]);
+    		}
+    		if(c == 10){										//end of one line
+    			if(lastChar == ']'){							//	This info contains [] in the end.
+    				latestReadPos = ftell(log_out_temp[fileOutNum]);
+    				if(lastLeftBracketPos < lastColonPos && lastColonPos < latestReadPos){		// This info contains file name info.
+        				memset(fileNameAndLineExp, '\0', 200);
+        				memset(fileNameExp, '\0', 200);
+        				fseek(log_out_temp[fileOutNum], lastLeftBracketPos, SEEK_SET);
+        				fread(fileNameAndLineExp, sizeof(char), latestReadPos-lastLeftBracketPos-2, log_out_temp[fileOutNum]);	//Read file name with line num
+        				fileNameLength = lastColonPos-lastLeftBracketPos-1;
+    					fseek(log_out_temp[fileOutNum], lastLeftBracketPos, SEEK_SET);
+        				fread(fileNameExp, sizeof(char), fileNameLength, log_out_temp[fileOutNum]);			//Read file name
+        				for(int i = 0; i < appearedFileNameNum[fileOutNum]; i++){										//Search the memeory for checking is this file appeared before
+        					if(appearedInfo[fileOutNum][i].fileName == fileNameExp && appearedInfo[fileOutNum][i].fileNameLength == fileNameLength){
+        						alreadyExistFlag = 1;
+        						curNamePos = i;
+        						break;
+        					}
+        				}
+        				if(!alreadyExistFlag){										//This file name didn't show before.
+        					infoTemp.fileNameLength = fileNameLength;
+        					infoTemp.fileName = fileNameExp;
+        					infoTemp.infoPosInTempFile.push_back(lineStartPos);
+        					infoTemp.infoAppearedNum = 1;
+        					appearedInfo[fileOutNum].push_back(infoTemp);
+        					infoTemp.infoPosInTempFile.clear();
+        					appearedFileNameNum[fileOutNum]++;
+    						fseek(log_out_temp[fileOutNum], latestReadPos, SEEK_SET);
+        				}
+        				else{														//This file name showed before.
+							appearedInfo[fileOutNum][curNamePos].infoPosInTempFile.push_back(lineStartPos);
+        					appearedInfo[fileOutNum][curNamePos].infoAppearedNum++;
+        					alreadyExistFlag = 0;
+        					fseek(log_out_temp[fileOutNum], latestReadPos, SEEK_SET);
+        				}
+    				}
+    				else{									//This info doesn't have any file name info at end of line.
+    					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
+    					while((c = getc(log_out_temp[fileOutNum])) != 10){
+    						putc(c, log_out[fileOutNum]);
+    					}
+    					putc(10, log_out[fileOutNum]);
+    				}
+    			}
+    			else{											//This info doesn't have any file name info at end of line.
+					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
+					while((c = getc(log_out_temp[fileOutNum])) != 10){
+						putc(c, log_out[fileOutNum]);
+					}
+					putc(10, log_out[fileOutNum]);
+    			}
+    			lineStartPos = ftell(log_out_temp[fileOutNum]);
+    		}
+    		lastChar = c;
+    	}
+    	lineStartPos = 0;
+    }
+
+    U8 wroteSythnFlag = 0, wroteImplFlag = 0;
+    for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+    	std::cout << "Classify the information in "<< keyWord[fileOutNum] << "by file name" << std::endl;
+    	fseek(log_out[fileOutNum], 0, SEEK_END);
+        putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);
+        fwrite("------------------------------Information with file name------------------------------\n", sizeof(char), 87, log_out[fileOutNum]);
+    	for(int i = 0; i < appearedInfo[fileOutNum].size(); i++){
+    		fwrite("Filename: ", sizeof(char), 10, log_out[fileOutNum]);						//Write the name this file
+    		fwrite(appearedInfo[fileOutNum][i].fileName.c_str(), sizeof(char), appearedInfo[fileOutNum][i].fileNameLength, log_out[fileOutNum]);
+    		putc('\t', log_out[fileOutNum]);putc('\t', log_out[fileOutNum]);
+    		fwrite("Quantity: ", sizeof(char), 10, log_out[fileOutNum]);						//Write the number of the info about this file
+    		string infoNum = std::to_string(appearedInfo[fileOutNum][i].infoAppearedNum);
+    		fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out[fileOutNum]);
+    		putc(10, log_out[fileOutNum]);
+    		for(int j = 0; j < appearedInfo[fileOutNum][i].infoAppearedNum; j++){				//Write info to the output file
+				 fseek(log_out_temp[fileOutNum], appearedInfo[fileOutNum][i].infoPosInTempFile[j], SEEK_SET);
+				 if(appearedInfo[fileOutNum][i].infoPosInTempFile[j] > endOfProcessInfoPos[0][fileOutNum]){
+					 if(!wroteImplFlag){
+						 putc('\n', log_out[fileOutNum]);
+						 fwrite("Implementation Information:\n", sizeof(char), 28, log_out[fileOutNum]);			//Write Implementation flag
+						 wroteImplFlag = 1;
+					 }
+				 }
+				 else{
+					 if(j == 0){
+						putc('\n', log_out[fileOutNum]);
+				    	fwrite("Synthesis Information:\n", sizeof(char), 23, log_out[fileOutNum]);			//Write Synthesis flag
+					 }
+				 }
+				 while((c = getc(log_out_temp[fileOutNum])) != 10 && (c != EOF)){
+				 	putc(c, log_out[fileOutNum]);
+				 }
+				 putc(10, log_out[fileOutNum]);
+    		}
+    		putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);
+    		wroteImplFlag = 0;
+    	}
+    }
+
     std::cout << "Classify finish." << std::endl;
     for(int i = 0; i < KEY_WORD_NUM; i++){
         fclose(log_out[i]);
+		fclose(log_out_temp[i]);
+		string fn = outTempFilename[i] + ".log";
+		remove(fn.c_str());					//Delete temporary files.
     }
+
 }
