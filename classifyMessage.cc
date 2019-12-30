@@ -1,7 +1,7 @@
 //############################################
-//#Date: 2019.12.29
+//#Date: 2019.12.30
 //#Author: Modified by Jiaxiang Feng
-//#Version: 2.0
+//#Version: 3.0
 //############################################
 #include "classifyMessage.h"
 
@@ -269,13 +269,15 @@ int main(int argc, char **argv)
     long long int latestReadPos = 0, lastLeftBracketPos = 0, lastColonPos = 0;
     int fileNameLength = 0;
     char lastChar;
-    char fileNameExp[200] = {};				//string temporary memory
-    char fileNameAndLineExp[200] = {};				//string temporary memory
+    char fileNameExp[300] = {};				//string temporary memory
+    char fileNameAndLineExp[300] = {};				//string temporary memory
     long int appearedFileNameNum[KEY_WORD_NUM] = {0};
     long long int lineStartPos = 0, curNamePos = 0;
 	std::vector<FileNameInfoProperty> appearedInfo[KEY_WORD_NUM];
 	FileNameInfoProperty infoTemp;
     U8 alreadyExistFlag = 0;
+    std::vector<long long> reservedMessage[KEY_WORD_NUM];
+    int maxNameLength[KEY_WORD_NUM] = {0};
 
     for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
     	std::cout << "Searching the information in "<< keyWord[fileOutNum] << "by file name" << std::endl;
@@ -291,8 +293,8 @@ int main(int argc, char **argv)
     			if(lastChar == ']'){							//	This info contains [] in the end.
     				latestReadPos = ftell(log_out_temp[fileOutNum]);
     				if(lastLeftBracketPos < lastColonPos && lastColonPos < latestReadPos){		// This info contains file name info.
-        				memset(fileNameAndLineExp, '\0', 200);
-        				memset(fileNameExp, '\0', 200);
+        				memset(fileNameAndLineExp, '\0', 300);
+        				memset(fileNameExp, '\0', 300);
         				fseek(log_out_temp[fileOutNum], lastLeftBracketPos, SEEK_SET);
         				fread(fileNameAndLineExp, sizeof(char), latestReadPos-lastLeftBracketPos-2, log_out_temp[fileOutNum]);	//Read file name with line num
         				fileNameLength = lastColonPos-lastLeftBracketPos-1;
@@ -314,6 +316,7 @@ int main(int argc, char **argv)
         					infoTemp.infoPosInTempFile.clear();
         					appearedFileNameNum[fileOutNum]++;
     						fseek(log_out_temp[fileOutNum], latestReadPos, SEEK_SET);
+    						if(maxNameLength[fileOutNum] < fileNameLength) maxNameLength[fileOutNum] = fileNameLength;
         				}
         				else{														//This file name showed before.
 							appearedInfo[fileOutNum][curNamePos].infoPosInTempFile.push_back(lineStartPos);
@@ -323,19 +326,21 @@ int main(int argc, char **argv)
         				}
     				}
     				else{									//This info doesn't have any file name info at end of line.
-    					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
-    					while((c = getc(log_out_temp[fileOutNum])) != 10){
-    						putc(c, log_out[fileOutNum]);
-    					}
-    					putc(10, log_out[fileOutNum]);
+//    					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
+//    					while((c = getc(log_out_temp[fileOutNum])) != 10){
+//    						putc(c, log_out[fileOutNum]);
+//    					}
+//    					putc(10, log_out[fileOutNum]);
+    					reservedMessage[fileOutNum].push_back(lineStartPos);
     				}
     			}
     			else{											//This info doesn't have any file name info at end of line.
-					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
-					while((c = getc(log_out_temp[fileOutNum])) != 10){
-						putc(c, log_out[fileOutNum]);
-					}
-					putc(10, log_out[fileOutNum]);
+//					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
+//					while((c = getc(log_out_temp[fileOutNum])) != 10){
+//						putc(c, log_out[fileOutNum]);
+//					}
+//					putc(10, log_out[fileOutNum]);
+    				reservedMessage[fileOutNum].push_back(lineStartPos);
     			}
     			lineStartPos = ftell(log_out_temp[fileOutNum]);
     		}
@@ -344,17 +349,158 @@ int main(int argc, char **argv)
     	lineStartPos = 0;
     }
 
-    U8 wroteSythnFlag = 0, wroteImplFlag = 0;
+
+    std::string target = " [See ";
+//    std::queue<char> targetTemp(6);
+//    std::vector<char> targetTemp(6);
+    std::string targetTemp;
+    std::string::iterator it;
+    U8 findColonFlag = 0;
+    long long int nameStartPos = 0;
+    std::vector<int> seefileInfoPosinReservedMeg[KEY_WORD_NUM];
+    for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){			//Search for " [See "
+    	seefileInfoPosinReservedMeg[fileOutNum].clear();
+    	for(int i = 0; i < reservedMessage[fileOutNum].size(); i++){
+    		fseek(log_out_temp[fileOutNum], reservedMessage[fileOutNum][i], SEEK_SET);
+    		targetTemp.clear();
+    		while((c = getc(log_out_temp[fileOutNum])) != '\n'){
+
+    			if(targetTemp.size() < 6){
+    				targetTemp.push_back(c);
+    			}
+    			else if(targetTemp.size() == 6){
+    				it = targetTemp.begin();
+    				targetTemp.erase(it);
+    				targetTemp.push_back(c);
+        			if(targetTemp == target){						//Find " [See "
+        				memset(fileNameAndLineExp, '\0', 300);
+        				memset(fileNameExp, '\0', 300);
+        				nameStartPos = ftell(log_out_temp[fileOutNum]);
+        				while((c = getc(log_out_temp[fileOutNum])) != ']'){
+        					if(c == ':'){
+        						lastColonPos = ftell(log_out_temp[fileOutNum]);
+        					}
+        				}
+        				latestReadPos = ftell(log_out_temp[fileOutNum]);
+           				fseek(log_out_temp[fileOutNum], nameStartPos, SEEK_SET);
+            			fread(fileNameAndLineExp, sizeof(char), latestReadPos-nameStartPos-1, log_out_temp[fileOutNum]);	//Read file name with line num
+            			fileNameLength = lastColonPos-nameStartPos-1;
+        				fseek(log_out_temp[fileOutNum], nameStartPos, SEEK_SET);
+            			fread(fileNameExp, sizeof(char), fileNameLength, log_out_temp[fileOutNum]);			//Read file name
+
+        				for(int j = 0; j < appearedFileNameNum[fileOutNum]; j++){										//Search the memeory for checking is this file appeared before
+        					if(appearedInfo[fileOutNum][j].fileName == fileNameExp && appearedInfo[fileOutNum][j].fileNameLength == fileNameLength){
+        						alreadyExistFlag = 1;
+        						curNamePos = j;
+        						break;
+        					}
+        				}
+        				if(!alreadyExistFlag){										//This file name didn't show before.
+        					infoTemp.fileNameLength = fileNameLength;
+        					infoTemp.fileName = fileNameExp;
+        					infoTemp.infoPosInTempFile.push_back(reservedMessage[fileOutNum][i]);
+        					infoTemp.infoAppearedNum = 1;
+        					appearedInfo[fileOutNum].push_back(infoTemp);
+        					infoTemp.infoPosInTempFile.clear();
+        					appearedFileNameNum[fileOutNum]++;
+    						if(maxNameLength[fileOutNum] < fileNameLength) maxNameLength[fileOutNum] = fileNameLength;
+        				}
+        				else{														//This file name showed before.
+							appearedInfo[fileOutNum][curNamePos].infoPosInTempFile.push_back(reservedMessage[fileOutNum][i]);
+        					appearedInfo[fileOutNum][curNamePos].infoAppearedNum++;
+        					alreadyExistFlag = 0;
+        				}
+        				seefileInfoPosinReservedMeg[fileOutNum].push_back(i);
+        			}
+    			}
+    		}
+    	}
+
+    }
+
+    for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){						//erase "See" info in reserved message.
+    	for(int i = 0; i < seefileInfoPosinReservedMeg[fileOutNum].size(); i++){
+    		reservedMessage[fileOutNum].erase(reservedMessage[fileOutNum].begin() + seefileInfoPosinReservedMeg[fileOutNum][i] - i);
+    	}
+    }
+    //Finding "constraint file 'xxx' "message function can be added here.
+
+    //Write statistical data table.
+    int fileNameCharLength = 35;			//Other Information Without File Name
+    int quantityCharLength = 8;
+    int columnNum = fileNameCharLength + quantityCharLength + 3;//File Name+Quantity+|||
+    for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+    	if(maxNameLength[fileOutNum] > fileNameCharLength){
+    		fileNameCharLength = maxNameLength[fileOutNum];
+    		columnNum = fileNameCharLength + quantityCharLength + 3;
+    	}
+    	fseek(log_out[fileOutNum], 0, SEEK_END);
+    	for(int i = 0; i < columnNum; i++){
+    		putc('-', log_out[fileOutNum]);
+    	}
+    	putc('\n', log_out[fileOutNum]);
+
+    	putc('|', log_out[fileOutNum]);
+    	fwrite("File Name", sizeof(char), 9, log_out[fileOutNum]);
+		for(int m = 0; m < fileNameCharLength - 9; m++){
+			putc(' ', log_out[fileOutNum]);
+		}
+		putc('|', log_out[fileOutNum]);
+		fwrite("Quantity", sizeof(char), 8, log_out[fileOutNum]);
+		putc('|', log_out[fileOutNum]);putc('\n', log_out[fileOutNum]);
+
+    	for(int fileNameNum = 0; fileNameNum < appearedInfo[fileOutNum].size(); fileNameNum++){
+    		putc('|', log_out[fileOutNum]);
+    		fwrite(appearedInfo[fileOutNum][fileNameNum].fileName.c_str(), sizeof(char), appearedInfo[fileOutNum][fileNameNum].fileNameLength, log_out[fileOutNum]);
+    		for(int m = 0; m < fileNameCharLength - appearedInfo[fileOutNum][fileNameNum].fileNameLength; m++){
+    			putc(' ', log_out[fileOutNum]);
+    		}
+    		putc('|', log_out[fileOutNum]);
+    		string infoNum = std::to_string(appearedInfo[fileOutNum][fileNameNum].infoAppearedNum);
+    		fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out[fileOutNum]);
+    		for(int m = 0; m < 8 - infoNum.length(); m++){
+    			putc(' ', log_out[fileOutNum]);
+    		}
+    		putc('|', log_out[fileOutNum]);putc('\n', log_out[fileOutNum]);
+    	}
+
+    	putc('|', log_out[fileOutNum]);
+    	fwrite("Other Information Without File Name", sizeof(char), 35, log_out[fileOutNum]);
+		for(int m = 0; m < fileNameCharLength - 35; m++){
+			putc(' ', log_out[fileOutNum]);
+		}
+		putc('|', log_out[fileOutNum]);
+		string infoNum = std::to_string(reservedMessage[fileOutNum].size());
+		fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out[fileOutNum]);
+		for(int m = 0; m < 8 - infoNum.length(); m++){
+			putc(' ', log_out[fileOutNum]);
+		}
+		putc('|', log_out[fileOutNum]);putc('\n', log_out[fileOutNum]);
+
+    	for(int i = 0; i < columnNum; i++){
+    		putc('-', log_out[fileOutNum]);
+    	}
+    	putc('\n', log_out[fileOutNum]);
+    	putc('\n', log_out[fileOutNum]);
+    	putc('\n', log_out[fileOutNum]);
+    	putc('\n', log_out[fileOutNum]);
+    }
+
+    U8 wroteImplFlag = 0;
     for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
     	std::cout << "Classify the information in "<< keyWord[fileOutNum] << "by file name" << std::endl;
-    	fseek(log_out[fileOutNum], 0, SEEK_END);
-        putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);
-        fwrite("------------------------------Information with file name------------------------------\n", sizeof(char), 87, log_out[fileOutNum]);
-    	for(int i = 0; i < appearedInfo[fileOutNum].size(); i++){
+        fwrite("------------------------------------------------------------Information with file name------------------------------------------------------------\n", sizeof(char), 147, log_out[fileOutNum]);
+        putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);
+        for(int i = 0; i < appearedInfo[fileOutNum].size(); i++){
     		fwrite("Filename: ", sizeof(char), 10, log_out[fileOutNum]);						//Write the name this file
-    		fwrite(appearedInfo[fileOutNum][i].fileName.c_str(), sizeof(char), appearedInfo[fileOutNum][i].fileNameLength, log_out[fileOutNum]);
+    		for(int m = 0; m < appearedInfo[fileOutNum][i].fileNameLength - 10; m++){
+    			putc(' ', log_out[fileOutNum]);
+    		}
     		putc('\t', log_out[fileOutNum]);putc('\t', log_out[fileOutNum]);
     		fwrite("Quantity: ", sizeof(char), 10, log_out[fileOutNum]);						//Write the number of the info about this file
+    		putc(10, log_out[fileOutNum]);
+    		fwrite(appearedInfo[fileOutNum][i].fileName.c_str(), sizeof(char), appearedInfo[fileOutNum][i].fileNameLength, log_out[fileOutNum]);
+    		putc('\t', log_out[fileOutNum]);putc('\t', log_out[fileOutNum]);
     		string infoNum = std::to_string(appearedInfo[fileOutNum][i].infoAppearedNum);
     		fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out[fileOutNum]);
     		putc(10, log_out[fileOutNum]);
@@ -378,9 +524,41 @@ int main(int argc, char **argv)
 				 }
 				 putc(10, log_out[fileOutNum]);
     		}
+    		fwrite("------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n",
+    				sizeof(char), 241, log_out[fileOutNum]);
     		putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);
     		wroteImplFlag = 0;
     	}
+    }
+
+    for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+    	std::cout << "Classify other information in "<< keyWord[fileOutNum] << std::endl;
+        fwrite("------------------------------------------------------------Other Information------------------------------------------------------------\n", sizeof(char), 138, log_out[fileOutNum]);
+        fwrite("Quantity: ", sizeof(char), 10, log_out[fileOutNum]);
+		string infoNum = std::to_string(reservedMessage[fileOutNum].size());
+		fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out[fileOutNum]);
+		putc(10, log_out[fileOutNum]);
+        for(int i = 0; i < reservedMessage[fileOutNum].size(); i++){
+        	fseek(log_out_temp[fileOutNum], reservedMessage[fileOutNum][i], SEEK_SET);
+			if(reservedMessage[fileOutNum][i] > endOfProcessInfoPos[0][fileOutNum]){
+				if(!wroteImplFlag){
+					putc('\n', log_out[fileOutNum]);
+					fwrite("Implementation Information:\n", sizeof(char), 28, log_out[fileOutNum]);			//Write Implementation flag
+					wroteImplFlag = 1;
+				}
+			}
+			else{
+				if(i == 0){
+					putc('\n', log_out[fileOutNum]);
+					fwrite("Synthesis Information:\n", sizeof(char), 23, log_out[fileOutNum]);			//Write Synthesis flag
+				}
+			}
+			while((c = getc(log_out_temp[fileOutNum])) != 10 && (c != EOF)){
+				putc(c, log_out[fileOutNum]);
+			}
+			putc(10, log_out[fileOutNum]);
+        }
+        wroteImplFlag = 0;
     }
 
     std::cout << "Classify finish." << std::endl;
