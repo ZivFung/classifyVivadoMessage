@@ -1,7 +1,7 @@
 //############################################
-//#Date: 2019.12.29
+//#Date: 2019.12.30
 //#Author: Modified by Jiaxiang Feng
-//#Version: 2.0
+//#Version: 3.0
 //############################################
 #ifndef _CLASSIFYMESSAGE_H_
 #define _CLASSIFYMESSAGE_H_
@@ -19,6 +19,7 @@
 #include <fstream>
 #include <climits>
 #include <vector>
+#include <queue>
 
 typedef uint8_t U8;
 typedef uint16_t U16;
