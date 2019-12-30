@@ -1,7 +1,7 @@
 //############################################
 //#Date: 2019.12.30
 //#Author: Modified by Jiaxiang Feng
-//#Version: 3.0
+//#Version: 3.1
 //############################################
 #include "classifyMessage.h"
 #include "dirent.h"
@@ -12,9 +12,6 @@
 #endif
 
 using std::string;
-
-#define KEY_WORD_NUM 3
-#define PROCESS_NUM 2
 
 U64 file_size(char* filename){
 	struct stat statbuf;
@@ -39,6 +36,13 @@ FileNameInfoProperty::FileNameInfoProperty(){
 	infoPosInTempFile.clear();
 	fileNameLength = 0;
 	infoAppearedNum = 0;
+}
+
+ocInfoProperty::ocInfoProperty(){
+	for(int i = 0; i < KEY_WORD_NUM; i++){
+		infoPosInTempFile[i].clear();
+	}
+	ocNameLength = 0;
 }
 
 struct File: public Reader, public Writer {
@@ -204,7 +208,6 @@ int main(int argc, char **argv)
 				frontCharNum++;
 			}
 			if(c == 10){							// Arrive at LF
-				breakLineFlag = 1;
 				frontPtr = frontCharacterExp;		//Change ptr to the head of memory.
 				frontCharacterExp[0] = '\0';
 				frontCharNum = 0;
@@ -328,20 +331,10 @@ int main(int argc, char **argv)
         				}
     				}
     				else{									//This info doesn't have any file name info at end of line.
-//    					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
-//    					while((c = getc(log_out_temp[fileOutNum])) != 10){
-//    						putc(c, log_out[fileOutNum]);
-//    					}
-//    					putc(10, log_out[fileOutNum]);
     					reservedMessage[fileOutNum].push_back(lineStartPos);
     				}
     			}
     			else{											//This info doesn't have any file name info at end of line.
-//					fseek(log_out_temp[fileOutNum],lineStartPos, SEEK_SET);
-//					while((c = getc(log_out_temp[fileOutNum])) != 10){
-//						putc(c, log_out[fileOutNum]);
-//					}
-//					putc(10, log_out[fileOutNum]);
     				reservedMessage[fileOutNum].push_back(lineStartPos);
     			}
     			lineStartPos = ftell(log_out_temp[fileOutNum]);
@@ -353,8 +346,6 @@ int main(int argc, char **argv)
 
 
     std::string target = " [See ";
-//    std::queue<char> targetTemp(6);
-//    std::vector<char> targetTemp(6);
     std::string targetTemp;
     std::string::iterator it;
     U8 findColonFlag = 0;
@@ -425,7 +416,7 @@ int main(int argc, char **argv)
     		reservedMessage[fileOutNum].erase(reservedMessage[fileOutNum].begin() + seefileInfoPosinReservedMeg[fileOutNum][i] - i);
     	}
     }
-    //Finding "constraint file 'xxx' "message function can be added here.
+    //Finding "constraint file 'xxx' "message function or other characteristic message function can be added here.
 
     //Write statistical data table.
     int fileNameCharLength = 35;			//Other Information Without File Name
@@ -526,8 +517,8 @@ int main(int argc, char **argv)
 				 }
 				 putc(10, log_out[fileOutNum]);
     		}
-    		fwrite("------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n",
-    				sizeof(char), 241, log_out[fileOutNum]);
+    		fwrite("----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n",
+    				sizeof(char), 221, log_out[fileOutNum]);
     		putc(10, log_out[fileOutNum]);putc(10, log_out[fileOutNum]);
     		wroteImplFlag = 0;
     	}
@@ -569,6 +560,8 @@ int main(int argc, char **argv)
 		string fn = outTempFilename[i] + ".log";
 		remove(fn.c_str());					//Delete temporary files.
     }
+
+
 /************************************OC log**************************************/
     DIR *pDir;
     struct dirent *ent;
@@ -577,7 +570,7 @@ int main(int argc, char **argv)
 
     std::vector<std::string> ocDirName;
 
-    while((ent=readdir(pDir))!=NULL){
+    while((ent=readdir(pDir))!=NULL){					//Search for all the subdirectory in .runs.
     	if(ent->d_type & DT_DIR){
     		if(strcmp(ent->d_name, ".")==0 || strcmp(ent->d_name, "..")==0)
     			continue;
@@ -592,88 +585,60 @@ int main(int argc, char **argv)
     	}
     }
 
-//    for(int x = 0; x < ocDirName.size(); x++){
-//    	std::cout << ocDirName[x]<< "\n" << std::endl;
-//    }
-
     std::cout << "Classify out-of-context module information." << std::endl;
-    FILE *oc_log_in;
-    string ocOutTempFilename[KEY_WORD_NUM] = {
-    	"oc_warning_temp",
-    	"oc_criticalWarning_temp",
-    	"oc_error_temp"
-    };
 
-    for(int i = 0; i < KEY_WORD_NUM; i++){
-    	string fn = ocOutTempFilename[i] + ".log";
-    	log_out_temp[i] = fopen(fn.c_str(), "wt+");
-    	if (!log_out_temp[i]) perror(fn.c_str()), exit(1);
-    }
+    FILE *oc_log_in, *oc_log_out;
+    string ocOutFilename = "oc_message.log";
+    oc_log_out = fopen(ocOutFilename.c_str(), "wt+");				//Open oc output log file.
+    if (!oc_log_out) perror(ocOutFilename.c_str()), exit(1);
+
     frontFinishFlag = 0;
 	frontPtr = frontCharacterExp;
 	frontCharacterExp[0] = '\0';
 	frontCharNum = 0;
-
-	std::vector<long long>ocQuantityPos[KEY_WORD_NUM];
-	int ocInfoQuantity[KEY_WORD_NUM] = {0};
+	std::vector<ocInfoProperty> ocInfo;
+	ocInfoProperty ocInfoTemp;
+	lineStartPos = 0;
+    string oc_log_path;
+    int maxOCModuleNameLen = 0;
     for(int ocLogNum = 0; ocLogNum < ocDirName.size(); ocLogNum++){
-    	string oc_log = projectDirectory + projectName + ".runs/" + ocDirName[ocLogNum] + "/runme.log";
-    	if(!(oc_log_in= fopen(oc_log.c_str(), "rt"))){				//open input log file
-//    		perror(oc_log.c_str()), exit(1);
-    		continue;
+    	oc_log_path = projectDirectory + projectName + ".runs/" + ocDirName[ocLogNum] + "/runme.log";
+    	if(!(oc_log_in= fopen(oc_log_path.c_str(), "rt")))continue;				//open input log file
+    	ocInfoTemp.ocName = ocDirName[ocLogNum];
+    	if(maxOCModuleNameLen < ocDirName[ocLogNum].length()){
+    		maxOCModuleNameLen = ocDirName[ocLogNum].length();
     	}
-    	for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
-    		fwrite("Out-of-context Module Name:  ", sizeof(char), 28, log_out_temp[fileOutNum]);						//Write the name this file
-    		fwrite(ocDirName[ocLogNum].c_str(), sizeof(char), ocDirName[ocLogNum].length(), log_out_temp[fileOutNum]);
-    		putc('\t', log_out_temp[fileOutNum]);putc('\t', log_out_temp[fileOutNum]);
-    		fwrite("Quantity:  ", sizeof(char), 10, log_out_temp[fileOutNum]);
-    		ocQuantityPos[fileOutNum].push_back(ftell(log_out_temp[fileOutNum]));
-    		putc(10, log_out_temp[fileOutNum]);
-    		putc(10, log_out_temp[fileOutNum]);
-    	}
-		while((c = getc(oc_log_in)) != EOF){
+    	ocInfoTemp.ocNameLength = ocDirName[ocLogNum].length();
+    	ocInfo.push_back(ocInfoTemp);											//Add oc module property to vector.
+		while((c = getc(oc_log_in)) != EOF){									//Record position of keyword info in the input log respectively.
 			if(!frontFinishFlag){
 				*frontPtr = c;
 				*++frontPtr = '\0';
 				frontCharNum++;
 			}
 			if(c == 10){							// Arrive at LF
-				breakLineFlag = 1;
 				frontPtr = frontCharacterExp;		//Change ptr to the head of memory.
 				frontCharacterExp[0] = '\0';
 				frontCharNum = 0;
 				frontFinishFlag = 0;
+				lineStartPos = ftell(oc_log_in);
 			}
 
 			switch(frontCharNum){
 				case 9:			//WARNING
 					if(frontCharacterExp == keyWord[0]){
-						for(int i = 0; i < keyWordNum[0]; i++){
-							putc(keyWord[0][i], log_out_temp[0]);
-						}
-						while((c = getc(oc_log_in)) != 10){
-							putc(c, log_out_temp[0]);
-						}
-						putc(10, log_out_temp[0]);
 						frontPtr = frontCharacterExp;
 						frontCharacterExp[0] = '\0';
 						frontCharNum = 0;
-						ocInfoQuantity[0]++;
+						ocInfo.back().infoPosInTempFile[0].push_back(lineStartPos);
 					}
 					break;
 				case 18:			//CRITICAL WARNING
 					if(frontCharacterExp == keyWord[1]){
-						for(int i = 0; i < keyWordNum[1]; i++){
-							putc(keyWord[1][i], log_out_temp[1]);
-						}
-						while((c = getc(oc_log_in)) != 10){
-							putc(c, log_out_temp[1]);
-						}
-						putc(10, log_out_temp[1]);
 						frontPtr = frontCharacterExp;
 						frontCharacterExp[0] = '\0';
 						frontCharNum = 0;
-						ocInfoQuantity[1]++;
+						ocInfo.back().infoPosInTempFile[1].push_back(lineStartPos);
 					}
 					else{
 						frontFinishFlag = 1;	//
@@ -682,17 +647,10 @@ int main(int argc, char **argv)
 					break;
 				case 7:			//ERROR
 					if(frontCharacterExp == keyWord[2]){
-						for(int i = 0; i < keyWordNum[2]; i++){
-							putc(keyWord[2][i], log_out_temp[2]);
-						}
-						while((c = getc(oc_log_in)) != 10){
-							putc(c, log_out_temp[2]);
-						}
-						putc(10, log_out_temp[2]);
 						frontPtr = frontCharacterExp;
 						frontCharacterExp[0] = '\0';
 						frontCharNum = 0;
-						ocInfoQuantity[2]++;
+						ocInfo.back().infoPosInTempFile[2].push_back(lineStartPos);
 					}
 					break;
 				default:
@@ -700,27 +658,116 @@ int main(int argc, char **argv)
 			}
 		}
 		fclose(oc_log_in);
-		for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
-			fseek(log_out_temp[fileOutNum], ocQuantityPos[fileOutNum], SEEK_SET);
-			string infoNum = std::to_string(ocInfoQuantity[fileOutNum]);
-			fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out_temp[fileOutNum]);
-    		putc(10, log_out_temp[fileOutNum]);
-		}
-		fseek(log_out_temp[1], ocQuantityPos[1], SEEK_SET);
-		fseek(log_out_temp[2], ocQuantityPos[2], SEEK_SET);
-		for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
-			fwrite("------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n",
-					sizeof(char), 241, log_out_temp[fileOutNum]);
-		}
     }
-	int ocInfoNum[KEY_WORD_NUM] = {0};
 
-    for(int i = 0; i < KEY_WORD_NUM; i++){
-//        fclose(log_out[i]);
-		fclose(log_out_temp[i]);
-//		string fn = outTempFilename[i] + ".log";
-//		remove(fn.c_str());					//Delete temporary files.
+    string messageType[KEY_WORD_NUM] = {
+    		"Warning Information\t\t",
+			"Critical Warning Information\t\t",
+			"Error Information\t\t"
+    };
+
+    string keyWordContent[KEY_WORD_NUM] = {
+    		"Warning",
+			"Critical Warning",
+			"Error"
+    };
+    string ocInfoNumStr;
+
+    /*************************Write Statistic Table***********************/
+    int tableColumSectionLength[KEY_WORD_NUM + 1] = {
+    		26,//"Out-of-context Module Name"
+			keyWordContent[0].length(),//"Warning"
+			keyWordContent[1].length(),//"Critical Warning"
+			keyWordContent[2].length()//"Error"
+
+    };
+    columnNum = 5;		// |||||
+    for(int i = 0; i < KEY_WORD_NUM + 1; i++){
+    	columnNum += tableColumSectionLength[i];//| + ocName + | + Warning + | + Critical Warning + | + Error + |
     }
+    if(maxOCModuleNameLen > tableColumSectionLength[0]){		//In case for max oc name is too small.
+    	tableColumSectionLength[0] = maxOCModuleNameLen;
+    	columnNum = 5;
+        for(int i = 0; i < KEY_WORD_NUM + 1; i++){
+        	columnNum += tableColumSectionLength[i];//| + ocName + | + Warning + | + Critical Warning + | + Error + |
+        }
+	}
+
+	fseek(oc_log_out, 0, SEEK_END);
+	for(int i = 0; i < columnNum; i++){
+		putc('-', oc_log_out);
+	}
+	putc('\n', oc_log_out);
+
+	putc('|', oc_log_out);
+	fwrite("Out-of-context Module Name", sizeof(char), 26, oc_log_out);
+	for(int m = 0; m < tableColumSectionLength[0] - 26; m++){
+		putc(' ', oc_log_out);
+	}
+	putc('|', oc_log_out);
+	fwrite("Warning", sizeof(char), 7, oc_log_out);
+	putc('|', oc_log_out);
+	fwrite("Critical Warning", sizeof(char), 16, oc_log_out);
+	putc('|', oc_log_out);
+	fwrite("Error", sizeof(char), 5, oc_log_out);
+	putc('|', oc_log_out);
+	putc('\n', oc_log_out);
+	for(int ocModuleNum = 0; ocModuleNum < ocInfo.size(); ocModuleNum++){
+		putc('|', oc_log_out);
+		fwrite(ocInfo[ocModuleNum].ocName.c_str(), sizeof(char), ocInfo[ocModuleNum].ocName.length(), oc_log_out);
+		for(int m = 0; m < tableColumSectionLength[0] - ocInfo[ocModuleNum].ocName.length(); m++){
+			putc(' ', oc_log_out);
+		}
+		putc('|', oc_log_out);
+		for(int keyWordNum = 0; keyWordNum < KEY_WORD_NUM; keyWordNum++){
+			ocInfoNumStr = std::to_string(ocInfo[ocModuleNum].infoPosInTempFile[keyWordNum].size());
+			fwrite(ocInfoNumStr.c_str(), sizeof(char), ocInfoNumStr.length(), oc_log_out);
+			for(int m = 0; m < tableColumSectionLength[keyWordNum+1] - ocInfoNumStr.length(); m++){
+				putc(' ', oc_log_out);
+			}
+			putc('|', oc_log_out);
+		}
+		putc('\n', oc_log_out);
+	}
+	for(int i = 0; i < columnNum; i++){
+		putc('-', oc_log_out);
+	}
+	putc('\n', oc_log_out);
+	putc('\n', oc_log_out);
+	putc('\n', oc_log_out);
+	putc('\n', oc_log_out);
+
+	/*************************Write OC Message***********************/
+    for(int ocLogNum = 0; ocLogNum < ocInfo.size(); ocLogNum++){				//Search every oc module.
+    	oc_log_path = projectDirectory + projectName + ".runs/" + ocInfo[ocLogNum].ocName + "/runme.log";
+    	if(!(oc_log_in= fopen(oc_log_path.c_str(), "rt"))){				//open input log file
+    		perror(oc_log_path.c_str()), exit(1);
+    	}
+    	fwrite("Out-of-context Module Name:\t\t", sizeof(char), 29, oc_log_out);
+    	fwrite(ocInfo[ocLogNum].ocName.c_str(), sizeof(char), ocInfo[ocLogNum].ocName.length(), oc_log_out);
+    	putc(10, oc_log_out);
+    	for(int keyWordNum = 0; keyWordNum < KEY_WORD_NUM; keyWordNum++){		//Split Info by keyword.
+    		fwrite(messageType[keyWordNum].c_str(), sizeof(char), messageType[keyWordNum].length(), oc_log_out);
+    		fwrite("Quantity:", sizeof(char), 9, oc_log_out);
+    		ocInfoNumStr = std::to_string(ocInfo[ocLogNum].infoPosInTempFile[keyWordNum].size());
+    		fwrite(ocInfoNumStr.c_str(), sizeof(char), ocInfoNumStr.length(), oc_log_out);
+    		putc(10, oc_log_out);
+    		putc(10, oc_log_out);
+    		for(int infoNum = 0; infoNum < ocInfo[ocLogNum].infoPosInTempFile[keyWordNum].size(); infoNum++){		//Write different keyword info respectively.									//search all the Info of this type of keyword.
+    			fseek(oc_log_in, ocInfo[ocLogNum].infoPosInTempFile[keyWordNum][infoNum], SEEK_SET);
+    			while((c = getc(oc_log_in)) != 10 && (c != EOF)){
+    				putc(c, oc_log_out);
+    			}
+    			putc(10, oc_log_out);
+    		}
+    		putc(10, oc_log_out);
+    	}
+    	fclose(oc_log_in);
+    	fwrite("----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n",
+    		sizeof(char), 221, oc_log_out);
+    }
+
+    fclose(oc_log_out);
     std::cout << "Classify finish." << std::endl;
 
 

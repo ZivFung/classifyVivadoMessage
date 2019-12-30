@@ -1,7 +1,7 @@
 //############################################
 //#Date: 2019.12.30
 //#Author: Modified by Jiaxiang Feng
-//#Version: 3.0
+//#Version: 3.1
 //############################################
 #ifndef _CLASSIFYMESSAGE_H_
 #define _CLASSIFYMESSAGE_H_
@@ -26,6 +26,9 @@ typedef uint16_t U16;
 typedef uint32_t U32;
 typedef uint64_t U64;
 
+#define KEY_WORD_NUM 3
+#define PROCESS_NUM 2
+
 class Reader {
 public:
   virtual int get() = 0;  // should return 0..255, or -1 at EOF
@@ -49,4 +52,11 @@ public:
 	FileNameInfoProperty();
 };
 
+class ocInfoProperty{
+public:
+	std::string ocName;
+	int ocNameLength = 0;
+	std::vector<long long int> infoPosInTempFile[KEY_WORD_NUM];
+	ocInfoProperty();
+};
 #endif
