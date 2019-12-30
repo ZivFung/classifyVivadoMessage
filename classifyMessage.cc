@@ -4,6 +4,8 @@
 //#Version: 3.0
 //############################################
 #include "classifyMessage.h"
+#include "dirent.h"
+#include "sys/types.h"
 
 #ifdef __linux__
   #include <sys/stat.h>
@@ -561,12 +563,165 @@ int main(int argc, char **argv)
         wroteImplFlag = 0;
     }
 
-    std::cout << "Classify finish." << std::endl;
     for(int i = 0; i < KEY_WORD_NUM; i++){
         fclose(log_out[i]);
 		fclose(log_out_temp[i]);
 		string fn = outTempFilename[i] + ".log";
 		remove(fn.c_str());					//Delete temporary files.
     }
+/************************************OC log**************************************/
+    DIR *pDir;
+    struct dirent *ent;
+    string runs_Dir = projectDirectory + projectName + ".runs";
+    pDir = opendir(runs_Dir.c_str());
+
+    std::vector<std::string> ocDirName;
+
+    while((ent=readdir(pDir))!=NULL){
+    	if(ent->d_type & DT_DIR){
+    		if(strcmp(ent->d_name, ".")==0 || strcmp(ent->d_name, "..")==0)
+    			continue;
+    		if(strcmp(ent->d_name, ".jobs")==0)
+    			continue;
+    		std::string dirName = ent->d_name;
+    		if(dirName.substr(0, 6) == "synth_")
+    			continue;
+    		if(dirName.substr(0, 5) == "impl_")
+    			continue;
+    		ocDirName.push_back(dirName);
+    	}
+    }
+
+//    for(int x = 0; x < ocDirName.size(); x++){
+//    	std::cout << ocDirName[x]<< "\n" << std::endl;
+//    }
+
+    std::cout << "Classify out-of-context module information." << std::endl;
+    FILE *oc_log_in;
+    string ocOutTempFilename[KEY_WORD_NUM] = {
+    	"oc_warning_temp",
+    	"oc_criticalWarning_temp",
+    	"oc_error_temp"
+    };
+
+    for(int i = 0; i < KEY_WORD_NUM; i++){
+    	string fn = ocOutTempFilename[i] + ".log";
+    	log_out_temp[i] = fopen(fn.c_str(), "wt+");
+    	if (!log_out_temp[i]) perror(fn.c_str()), exit(1);
+    }
+    frontFinishFlag = 0;
+	frontPtr = frontCharacterExp;
+	frontCharacterExp[0] = '\0';
+	frontCharNum = 0;
+
+	std::vector<long long>ocQuantityPos[KEY_WORD_NUM];
+	int ocInfoQuantity[KEY_WORD_NUM] = {0};
+    for(int ocLogNum = 0; ocLogNum < ocDirName.size(); ocLogNum++){
+    	string oc_log = projectDirectory + projectName + ".runs/" + ocDirName[ocLogNum] + "/runme.log";
+    	if(!(oc_log_in= fopen(oc_log.c_str(), "rt"))){				//open input log file
+//    		perror(oc_log.c_str()), exit(1);
+    		continue;
+    	}
+    	for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+    		fwrite("Out-of-context Module Name:  ", sizeof(char), 28, log_out_temp[fileOutNum]);						//Write the name this file
+    		fwrite(ocDirName[ocLogNum].c_str(), sizeof(char), ocDirName[ocLogNum].length(), log_out_temp[fileOutNum]);
+    		putc('\t', log_out_temp[fileOutNum]);putc('\t', log_out_temp[fileOutNum]);
+    		fwrite("Quantity:  ", sizeof(char), 10, log_out_temp[fileOutNum]);
+    		ocQuantityPos[fileOutNum].push_back(ftell(log_out_temp[fileOutNum]));
+    		putc(10, log_out_temp[fileOutNum]);
+    		putc(10, log_out_temp[fileOutNum]);
+    	}
+		while((c = getc(oc_log_in)) != EOF){
+			if(!frontFinishFlag){
+				*frontPtr = c;
+				*++frontPtr = '\0';
+				frontCharNum++;
+			}
+			if(c == 10){							// Arrive at LF
+				breakLineFlag = 1;
+				frontPtr = frontCharacterExp;		//Change ptr to the head of memory.
+				frontCharacterExp[0] = '\0';
+				frontCharNum = 0;
+				frontFinishFlag = 0;
+			}
+
+			switch(frontCharNum){
+				case 9:			//WARNING
+					if(frontCharacterExp == keyWord[0]){
+						for(int i = 0; i < keyWordNum[0]; i++){
+							putc(keyWord[0][i], log_out_temp[0]);
+						}
+						while((c = getc(oc_log_in)) != 10){
+							putc(c, log_out_temp[0]);
+						}
+						putc(10, log_out_temp[0]);
+						frontPtr = frontCharacterExp;
+						frontCharacterExp[0] = '\0';
+						frontCharNum = 0;
+						ocInfoQuantity[0]++;
+					}
+					break;
+				case 18:			//CRITICAL WARNING
+					if(frontCharacterExp == keyWord[1]){
+						for(int i = 0; i < keyWordNum[1]; i++){
+							putc(keyWord[1][i], log_out_temp[1]);
+						}
+						while((c = getc(oc_log_in)) != 10){
+							putc(c, log_out_temp[1]);
+						}
+						putc(10, log_out_temp[1]);
+						frontPtr = frontCharacterExp;
+						frontCharacterExp[0] = '\0';
+						frontCharNum = 0;
+						ocInfoQuantity[1]++;
+					}
+					else{
+						frontFinishFlag = 1;	//
+						frontCharNum++;
+					}
+					break;
+				case 7:			//ERROR
+					if(frontCharacterExp == keyWord[2]){
+						for(int i = 0; i < keyWordNum[2]; i++){
+							putc(keyWord[2][i], log_out_temp[2]);
+						}
+						while((c = getc(oc_log_in)) != 10){
+							putc(c, log_out_temp[2]);
+						}
+						putc(10, log_out_temp[2]);
+						frontPtr = frontCharacterExp;
+						frontCharacterExp[0] = '\0';
+						frontCharNum = 0;
+						ocInfoQuantity[2]++;
+					}
+					break;
+				default:
+					break;
+			}
+		}
+		fclose(oc_log_in);
+		for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+			fseek(log_out_temp[fileOutNum], ocQuantityPos[fileOutNum], SEEK_SET);
+			string infoNum = std::to_string(ocInfoQuantity[fileOutNum]);
+			fwrite(infoNum.c_str(), sizeof(char), infoNum.length(), log_out_temp[fileOutNum]);
+    		putc(10, log_out_temp[fileOutNum]);
+		}
+		fseek(log_out_temp[1], ocQuantityPos[1], SEEK_SET);
+		fseek(log_out_temp[2], ocQuantityPos[2], SEEK_SET);
+		for(int fileOutNum = 0; fileOutNum < KEY_WORD_NUM; fileOutNum++){
+			fwrite("------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------\n",
+					sizeof(char), 241, log_out_temp[fileOutNum]);
+		}
+    }
+	int ocInfoNum[KEY_WORD_NUM] = {0};
+
+    for(int i = 0; i < KEY_WORD_NUM; i++){
+//        fclose(log_out[i]);
+		fclose(log_out_temp[i]);
+//		string fn = outTempFilename[i] + ".log";
+//		remove(fn.c_str());					//Delete temporary files.
+    }
+    std::cout << "Classify finish." << std::endl;
+
 
 }
